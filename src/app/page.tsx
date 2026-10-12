@@ -1,69 +1,178 @@
-import Image from "next/image";
+import { getDashboardSummary, getLatestOccupancy, submitOccupancy } from './actions'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Warehouse, Loader, BedDouble, AlertTriangle } from 'lucide-react'
 
-export default function Home() {
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardPage() {
+  const summary = await getDashboardSummary()
+  const latestOccupancy = await getLatestOccupancy()
+
+  const calculateHealth = (item: any) => {
+    const activeStock = item.cleanStock + item.laundryStock + item.inRoomStock + (item.inVillaStock || 0)
+    const ratio = activeStock / item.parStockTarget
+    if (ratio >= 1) return { label: 'Aman', color: 'bg-emerald-500', text: 'text-emerald-900', bg: 'bg-emerald-100' }
+    if (ratio >= 0.8) return { label: 'Peringatan', color: 'bg-yellow-500', text: 'text-yellow-900', bg: 'bg-yellow-100' }
+    return { label: 'Kritis', color: 'bg-red-500', text: 'text-red-900', bg: 'bg-red-100' }
+  }
+
+  // Simplified calculation for demo
+  const roomStandard: Record<string, number> = {
+    'Duvet Cover': 1,
+    'Sheet / Sprei': 2,
+    'Pillow Case': 4,
+    'Bath Towel': 2,
+    'Face Towel': 2,
+    'Bath Mat': 1,
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100">Dashboard Utama</h2>
+          <p className="text-muted-foreground">Ringkasan real-time pergerakan stok linen hotel.</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Gudang (Clean)</CardTitle>
+            <Warehouse className="h-4 w-4 text-emerald-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.totalClean}</div>
+            <p className="text-xs text-muted-foreground">Total unit siap pakai</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Laundry (Sedang Dicuci)</CardTitle>
+            <Loader className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.totalLaundry}</div>
+            <p className="text-xs text-muted-foreground">Total unit di vendor/internal</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Kamar (Terpasang)</CardTitle>
+            <BedDouble className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.totalInRoom}</div>
+            <p className="text-xs text-muted-foreground">Total sirkulasi di tamu hotel</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Villa (Terpasang)</CardTitle>
+            <BedDouble className="h-4 w-4 text-indigo-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.totalInVilla}</div>
+            <p className="text-xs text-muted-foreground">Total sirkulasi di villa</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Afkir (Condemned)</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.totalCondemned}</div>
+            <p className="text-xs text-muted-foreground">Unit rusak atau noda permanen</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Par Stock Health Indicator */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Par Stock Health Indicator</CardTitle>
+            <CardDescription>Status kelayakan kuota linen aktif terhadap standar hotel</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item Linen</TableHead>
+                  <TableHead className="text-right">Stok Aktif</TableHead>
+                  <TableHead className="text-right">Target Par</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {summary.items.map(item => {
+                  const activeStock = item.cleanStock + item.laundryStock + item.inRoomStock + (item.inVillaStock || 0)
+                  const health = calculateHealth(item)
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell className="text-right">{activeStock}</TableCell>
+                      <TableCell className="text-right">{item.parStockTarget}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={`${health.bg} ${health.text} border-none`}>
+                          <span className={`w-2 h-2 rounded-full mr-2 ${health.color}`}></span>
+                          {health.label}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        {/* Occupancy Calculator */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Daily Occupancy</CardTitle>
+            <CardDescription>Hitung proyeksi kebutuhan hari ini</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form key={latestOccupancy?.id || 'empty'} action={async (formData) => {
+              'use server'
+              const rooms = parseInt(formData.get('occupied') as string) || 0
+              const villas = parseInt(formData.get('occupiedVillas') as string) || 0
+              if (rooms >= 0 && villas >= 0) {
+                await submitOccupancy(rooms, villas)
+              }
+            }} className="flex gap-2 mb-6">
+              <Input type="number" name="occupied" placeholder="Kamar Hotel terisi..." defaultValue={latestOccupancy?.occupiedRooms ?? ''} />
+              <Input type="number" name="occupiedVillas" placeholder="Villa terisi..." defaultValue={latestOccupancy?.occupiedVillas ?? ''} />
+              <Button type="submit">Set</Button>
+            </form>
+
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold">Proyeksi Kebutuhan</h4>
+              <p className="text-xs text-muted-foreground mb-4">Hotel terisi: {latestOccupancy?.occupiedRooms || 0} | Villa terisi: {latestOccupancy?.occupiedVillas || 0}</p>
+              <div className="space-y-2">
+                {summary.items.map(item => {
+                  const hotelNeeded = (latestOccupancy?.occupiedRooms || 0) * (roomStandard[item.name] || 1)
+                  const villaNeeded = (latestOccupancy?.occupiedVillas || 0) * ((roomStandard[item.name] || 1) * 2) // Villa is 2x standard
+                  const totalNeeded = hotelNeeded + villaNeeded
+                  return (
+                    <div key={item.id} className="flex justify-between text-sm items-center border-b border-slate-100 dark:border-slate-800 pb-1">
+                      <span className="text-slate-600 dark:text-slate-300">{item.name}</span>
+                      <span className="font-medium">{totalNeeded} unit <span className="text-xs text-slate-400 font-normal ml-1">({hotelNeeded} H + {villaNeeded} V)</span></span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  );
+  )
 }

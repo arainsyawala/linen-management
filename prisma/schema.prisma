@@ -1,0 +1,96 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+
+
+
+
+
+model User {
+  id             String         @id @default(uuid())
+  name           String
+  email          String         @unique
+  password       String
+  role           String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  transactions   Transaction[]  @relation("CreatedTransactions")
+  acceptedTrans  Transaction[]  @relation("AcceptedTransactions")
+  conditionLogs  ConditionLog[]
+}
+
+model LinenItem {
+  id              String         @id @default(uuid())
+  name            String         @unique // e.g. Duvet, Sheet, Pillow Case
+  unitPrice       Float
+  totalAsset      Int
+  cleanStock      Int
+  laundryStock    Int
+  inRoomStock     Int
+  inVillaStock    Int      @default(0)
+  transitStock    Int      @default(0) // Pending handover stock
+  condemnedStock  Int
+  minAlertLevel   Int
+  parStockTarget  Int
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  transactions    TransactionItem[]
+  conditionLogs   ConditionLog[]
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  transactionNo String            @unique
+  type          String            // DIRTY_TO_LAUNDRY, CLEAN_TO_HOUSEKEEPING, IN_ROOM_DISTRIBUTION
+  status        String            @default("PENDING") // PENDING, DISPUTED, ACCEPTED, REJECTED
+  notes         String?
+  disputeNotes  String?
+  createdById   String
+  createdBy     User              @relation("CreatedTransactions", fields: [createdById], references: [id])
+  acceptedById  String?
+  acceptedBy    User?             @relation("AcceptedTransactions", fields: [acceptedById], references: [id])
+  createdAt     DateTime          @default(now())
+  
+  items         TransactionItem[]
+}
+
+model TransactionItem {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  linenItemId   String
+  linenItem     LinenItem   @relation(fields: [linenItemId], references: [id])
+  quantity      Int
+  receivedQty   Int?        // Null if not checked, or filled by receiver during dispute
+}
+
+model ConditionLog {
+  id            String         @id @default(uuid())
+  linenItemId   String
+  linenItem     LinenItem      @relation(fields: [linenItemId], references: [id])
+  condition     String         // GOOD, STAINED, DAMAGED
+  quantity      Int
+  notes         String?
+  reportedById  String
+  reportedBy    User           @relation(fields: [reportedById], references: [id])
+  createdAt     DateTime       @default(now())
+}
+
+model DailyOccupancy {
+  id            String   @id @default(uuid())
+  date          DateTime @default(now())
+  occupiedRooms Int
+  totalRooms    Int      @default(100)
+  occupiedVillas Int     @default(0)
+  totalVillas    Int     @default(20)
+  notes         String?
+  createdAt     DateTime @default(now())
+}
