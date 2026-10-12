@@ -57,13 +57,25 @@ export const authOptions: NextAuthOptions = {
       return session
     },
     async redirect({ url, baseUrl }) {
-      // Izinkan redirect ke host devtunnels (VS Code Port Forwarding)
-      if (url.includes('devtunnels.ms')) {
+      // Izinkan redirect ke host vercel.app atau devtunnels.ms
+      if (url.includes('vercel.app') || url.includes('devtunnels.ms')) {
         return url
       }
-      // Bawaan NextAuth
-      if (url.startsWith("/")) return `${baseUrl}${url}`
-      else if (new URL(url).origin === baseUrl) return url
+      // Jika URL relatif (seperti /login)
+      if (url.startsWith("/")) {
+        const resolvedBase = process.env.NEXTAUTH_URL 
+          || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
+          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : baseUrl)
+        return `${resolvedBase}${url}`
+      }
+      // Bawaan NextAuth jika origin sama
+      try {
+        if (new URL(url).origin === baseUrl) return url
+      } catch {}
+
+      if (process.env.VERCEL_URL) {
+        return `https://${process.env.VERCEL_URL}`
+      }
       return baseUrl
     }
   },
