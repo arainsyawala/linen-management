@@ -13,13 +13,15 @@ export default async function ReportsPage() {
     'Nama Linen': item.name,
     'Stok Gudang (Clean)': item.cleanStock,
     'Stok Laundry': item.laundryStock,
-    'Stok Kamar (In Room)': item.inRoomStock,
-    'Total Stok Aktif': item.cleanStock + item.laundryStock + item.inRoomStock,
+    'Stok Kamar (Hotel)': item.inRoomStock,
+    'Stok Villa (Terpasang)': item.inVillaStock,
+    'Total Stok Aktif': item.cleanStock + item.laundryStock + item.inRoomStock + item.inVillaStock,
     'Total Afkir / Rusak': item.condemnedStock,
     'Kerugian Afkir (Rp)': item.condemnedStock * item.unitPrice
   }))
 
   const totalLoss = summary.items.reduce((sum, item) => sum + (item.condemnedStock * item.unitPrice), 0)
+  const grandTotalActive = summary.totalClean + summary.totalLaundry + summary.totalInRoom + summary.totalInVilla
 
   return (
     <div className="space-y-6 print:m-0 print:p-0">
@@ -37,14 +39,15 @@ export default async function ReportsPage() {
             <CardTitle>Rekapitulasi Sirkulasi Linen</CardTitle>
             <CardDescription>Distribusi linen aktif per {new Date().toLocaleDateString('id-ID')}</CardDescription>
           </CardHeader>
-          <CardContent className="print:px-0">
+          <CardContent className="print:px-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Item Linen</TableHead>
                   <TableHead className="text-right">Gudang (Clean)</TableHead>
                   <TableHead className="text-right">Laundry</TableHead>
-                  <TableHead className="text-right">Kamar (Terpasang)</TableHead>
+                  <TableHead className="text-right">Kamar (Hotel)</TableHead>
+                  <TableHead className="text-right">Villa (Terpasang)</TableHead>
                   <TableHead className="text-right font-bold text-emerald-700">Total Aktif</TableHead>
                 </TableRow>
               </TableHeader>
@@ -55,11 +58,20 @@ export default async function ReportsPage() {
                     <TableCell className="text-right">{item.cleanStock}</TableCell>
                     <TableCell className="text-right">{item.laundryStock}</TableCell>
                     <TableCell className="text-right">{item.inRoomStock}</TableCell>
+                    <TableCell className="text-right">{item.inVillaStock}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-700">
-                      {item.cleanStock + item.laundryStock + item.inRoomStock}
+                      {item.cleanStock + item.laundryStock + item.inRoomStock + item.inVillaStock}
                     </TableCell>
                   </TableRow>
                 ))}
+                <TableRow className="bg-slate-50/80 dark:bg-slate-900/60 font-semibold border-t-2">
+                  <TableCell>Total Keseluruhan</TableCell>
+                  <TableCell className="text-right">{summary.totalClean}</TableCell>
+                  <TableCell className="text-right">{summary.totalLaundry}</TableCell>
+                  <TableCell className="text-right">{summary.totalInRoom}</TableCell>
+                  <TableCell className="text-right">{summary.totalInVilla}</TableCell>
+                  <TableCell className="text-right font-bold text-emerald-700">{grandTotalActive}</TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </CardContent>
