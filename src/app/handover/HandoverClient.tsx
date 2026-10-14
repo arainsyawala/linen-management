@@ -22,6 +22,7 @@ export default function HandoverClient({
   const router = useRouter()
   const [tab, setTab] = useState<'verify' | 'dispute'>('verify')
   const [loading, setLoading] = useState(false)
+  const [loadingActionId, setLoadingActionId] = useState<string | null>(null)
   const [editingData, setEditingData] = useState<Record<string, { receivedQty: number }>>({})
   const [disputeNote, setDisputeNote] = useState<string>('')
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null)
@@ -37,6 +38,7 @@ export default function HandoverClient({
   const submitVerification = async (txId: string, items: any[]) => {
     try {
       setLoading(true)
+      setLoadingActionId(`verify-${txId}`)
       const receivedItems = items.map(item => ({
         itemId: item.id,
         receivedQty: editingData[item.id]?.receivedQty !== undefined 
@@ -53,6 +55,7 @@ export default function HandoverClient({
         setSelectedTxId(txId)
         toast.warning("Terdapat Selisih", { description: "Harap isi catatan selisih sebelum melanjutkan." })
         setLoading(false)
+        setLoadingActionId(null)
         return
       }
 
@@ -73,12 +76,14 @@ export default function HandoverClient({
       toast.error("Gagal", { description: err.message || "Terjadi kesalahan sistem" })
     } finally {
       setLoading(false)
+      setLoadingActionId(null)
     }
   }
 
   const handleDisputeAction = async (txId: string, action: 'APPROVE' | 'REJECT') => {
     try {
       setLoading(true)
+      setLoadingActionId(`dispute-${txId}-${action}`)
       const res = await confirmDispute(txId, action)
       if (res && !res.success) {
         toast.error("Gagal", { description: res.error || "Gagal memproses konfirmasi selisih" })
@@ -94,6 +99,7 @@ export default function HandoverClient({
       toast.error("Gagal", { description: err.message || "Terjadi kesalahan sistem" })
     } finally {
       setLoading(false)
+      setLoadingActionId(null)
     }
   }
 
@@ -171,7 +177,8 @@ export default function HandoverClient({
                           size="sm" 
                           onClick={() => submitVerification(tx.id, tx.items)} 
                           disabled={loading}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          loading={loadingActionId === `verify-${tx.id}`}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[125px]"
                         >
                           {selectedTxId === tx.id ? "Konfirmasi Revisi" : "Terima Barang"}
                         </Button>
@@ -227,7 +234,8 @@ export default function HandoverClient({
                           variant="outline"
                           onClick={() => handleDisputeAction(tx.id, 'REJECT')} 
                           disabled={loading}
-                          className="text-red-600 border-red-200 hover:bg-red-50"
+                          loading={loadingActionId === `dispute-${tx.id}-REJECT`}
+                          className="text-red-600 border-red-200 hover:bg-red-50 min-w-[95px]"
                         >
                           Batal Total
                         </Button>
@@ -235,7 +243,8 @@ export default function HandoverClient({
                           size="sm" 
                           onClick={() => handleDisputeAction(tx.id, 'APPROVE')} 
                           disabled={loading}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          loading={loadingActionId === `dispute-${tx.id}-APPROVE`}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[115px]"
                         >
                           Setujui Selisih
                         </Button>

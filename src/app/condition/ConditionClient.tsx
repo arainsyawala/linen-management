@@ -101,8 +101,13 @@ export default function ConditionClient({ items }: { items: any[] }) {
             </div>
 
             <div className="pt-2">
-              <Button type="submit" disabled={loading || !selectedItem} className={`w-full ${condition === 'DAMAGED' ? 'bg-red-600 hover:bg-red-700' : ''}`}>
-                {loading ? 'Menyimpan...' : 'Laporkan Kondisi'}
+              <Button 
+                type="submit" 
+                disabled={loading || !selectedItem} 
+                loading={loading}
+                className={`w-full ${condition === 'DAMAGED' ? 'bg-red-600 hover:bg-red-700' : ''}`}
+              >
+                Laporkan Kondisi
               </Button>
             </div>
           </form>

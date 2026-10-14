@@ -5,6 +5,7 @@ import { getDashboardSummary, getLatestOccupancy, submitOccupancy } from './acti
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { OccupancySubmitButton } from '@/components/OccupancySubmitButton'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Warehouse, Loader, BedDouble, AlertTriangle } from 'lucide-react'
@@ -158,7 +159,7 @@ export default async function DashboardPage() {
             }} className="flex gap-2 mb-6">
               <Input type="number" name="occupied" placeholder="Kamar Hotel terisi..." defaultValue={latestOccupancy?.occupiedRooms ?? ''} />
               <Input type="number" name="occupiedVillas" placeholder="Villa terisi..." defaultValue={latestOccupancy?.occupiedVillas ?? ''} />
-              <Button type="submit">Set</Button>
+              <OccupancySubmitButton />
             </form>
 
             <div className="space-y-4">

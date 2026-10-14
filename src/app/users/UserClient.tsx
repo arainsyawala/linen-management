@@ -85,8 +85,7 @@ export default function UserClient({ users }: { users: any[] }) {
             </div>
             
             <div className="pt-2 flex justify-end">
-              <Button type="submit" disabled={loading} className="bg-emerald-600 hover:bg-emerald-700">
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              <Button type="submit" disabled={loading} loading={loading} className="bg-emerald-600 hover:bg-emerald-700 min-w-[130px]">
                 Daftarkan Staf
               </Button>
             </div>

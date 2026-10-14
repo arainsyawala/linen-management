@@ -162,8 +162,14 @@ export default function TransactionClient({ items }: { items: any[] }) {
       </div>
 
       <div className="flex justify-end pt-4">
-        <Button size="lg" onClick={handleSubmit} disabled={loading} className="w-full md:w-auto px-12 bg-emerald-600 hover:bg-emerald-700">
-          {loading ? 'Menyimpan...' : 'Submit Transaksi'}
+        <Button 
+          size="lg" 
+          onClick={handleSubmit} 
+          disabled={loading} 
+          loading={loading}
+          className="w-full md:w-auto px-12 bg-emerald-600 hover:bg-emerald-700 min-w-[190px]"
+        >
+          Submit Transaksi
         </Button>
       </div>
     </div>
