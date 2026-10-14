@@ -27,9 +27,10 @@ export default function HandoverClient({
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null)
 
   const handleQtyChange = (itemId: string, val: string) => {
+    const parsed = parseInt(val, 10)
     setEditingData(prev => ({
       ...prev,
-      [itemId]: { receivedQty: parseInt(val) || 0 }
+      [itemId]: { receivedQty: isNaN(parsed) ? 0 : Math.max(0, parsed) }
     }))
   }
 
@@ -38,7 +39,9 @@ export default function HandoverClient({
       setLoading(true)
       const receivedItems = items.map(item => ({
         itemId: item.id,
-        receivedQty: editingData[item.id]?.receivedQty ?? item.quantity
+        receivedQty: editingData[item.id]?.receivedQty !== undefined 
+          ? editingData[item.id].receivedQty 
+          : item.quantity
       }))
       
       const hasDiscrepancy = receivedItems.some(r => {
@@ -46,14 +49,19 @@ export default function HandoverClient({
         return orig && r.receivedQty !== orig.quantity
       })
 
-      if (hasDiscrepancy && !disputeNote && selectedTxId !== txId) {
+      if (hasDiscrepancy && !disputeNote.trim()) {
         setSelectedTxId(txId)
         toast.warning("Terdapat Selisih", { description: "Harap isi catatan selisih sebelum melanjutkan." })
         setLoading(false)
         return
       }
 
-      await verifyTransaction(txId, userId, receivedItems, hasDiscrepancy ? disputeNote : undefined)
+      const res = await verifyTransaction(txId, userId, receivedItems, hasDiscrepancy ? disputeNote.trim() : undefined)
+      if (res && !res.success) {
+        toast.error("Gagal", { description: res.error || "Gagal memproses serah terima" })
+        return
+      }
+
       toast.success(hasDiscrepancy ? "Revisi Terkirim!" : "Serah Terima Berhasil!", {
         description: hasDiscrepancy ? "Menunggu konfirmasi dari pihak pengirim." : "Barang telah resmi masuk ke stok Anda."
       })
@@ -62,7 +70,7 @@ export default function HandoverClient({
       setDisputeNote('')
       router.refresh()
     } catch (err: any) {
-      toast.error("Gagal", { description: err.message })
+      toast.error("Gagal", { description: err.message || "Terjadi kesalahan sistem" })
     } finally {
       setLoading(false)
     }
@@ -71,7 +79,11 @@ export default function HandoverClient({
   const handleDisputeAction = async (txId: string, action: 'APPROVE' | 'REJECT') => {
     try {
       setLoading(true)
-      await confirmDispute(txId, action)
+      const res = await confirmDispute(txId, action)
+      if (res && !res.success) {
+        toast.error("Gagal", { description: res.error || "Gagal memproses konfirmasi selisih" })
+        return
+      }
       toast.success(action === 'APPROVE' ? "Selisih Disetujui!" : "Transaksi Dibatalkan", {
         description: action === 'APPROVE' 
           ? "Stok berhasil disesuaikan dengan angka baru." 
@@ -79,7 +91,7 @@ export default function HandoverClient({
       })
       router.refresh()
     } catch (err: any) {
-      toast.error("Gagal", { description: err.message })
+      toast.error("Gagal", { description: err.message || "Terjadi kesalahan sistem" })
     } finally {
       setLoading(false)
     }

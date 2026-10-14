@@ -1,3 +1,6 @@
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { redirect } from "next/navigation"
 import { getDashboardSummary } from '../actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -6,6 +9,11 @@ import ReportActions from './ReportActions'
 export const dynamic = 'force-dynamic'
 
 export default async function ReportsPage() {
+  const session = await getServerSession(authOptions)
+  if (session?.user?.role !== "ADMIN_EXECUTIVE_HOUSEKEEPER") {
+    redirect("/")
+  }
+
   const summary = await getDashboardSummary()
 
   // Format data for export
