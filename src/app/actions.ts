@@ -143,11 +143,16 @@ export async function submitTransaction(
     
     const isInternal = type === 'CLEAN_TO_HOTEL' || type === 'CLEAN_TO_VILLA'
 
-    // Mutate Stock with strict inventory range validation
+    // Batch query all linen items to avoid N roundtrips
+    const linenItemIds = items.map(i => i.linenItemId)
+    const currentItems = await tx.linenItem.findMany({
+      where: { id: { in: linenItemIds } }
+    })
+    const itemMap = new Map(currentItems.map(i => [i.id, i]))
+
+    // In-memory stock sufficiency validation
     for (const item of items) {
-      const currentItem = await tx.linenItem.findUnique({
-        where: { id: item.linenItemId }
-      })
+      const currentItem = itemMap.get(item.linenItemId)
       if (!currentItem) {
         throw new Error("Item linen tidak ditemukan")
       }
@@ -156,59 +161,71 @@ export async function submitTransaction(
         if (currentItem.inRoomStock < item.quantity) {
           throw new Error(`Stok di kamar hotel untuk ${currentItem.name} tidak mencukupi (Tersedia: ${currentItem.inRoomStock}, Diminta: ${item.quantity})`)
         }
-        await tx.linenItem.update({
-          where: { id: item.linenItemId },
-          data: {
-            inRoomStock: { decrement: item.quantity },
-            transitStock: { increment: item.quantity }
-          }
-        })
       } else if (type === 'DIRTY_VILLA_TO_LAUNDRY') {
         if (currentItem.inVillaStock < item.quantity) {
           throw new Error(`Stok di villa untuk ${currentItem.name} tidak mencukupi (Tersedia: ${currentItem.inVillaStock}, Diminta: ${item.quantity})`)
         }
-        await tx.linenItem.update({
-          where: { id: item.linenItemId },
-          data: {
-            inVillaStock: { decrement: item.quantity },
-            transitStock: { increment: item.quantity }
-          }
-        })
       } else if (type === 'LAUNDRY_TO_CLEAN') {
         if (currentItem.laundryStock < item.quantity) {
           throw new Error(`Stok di laundry untuk ${currentItem.name} tidak mencukupi (Tersedia: ${currentItem.laundryStock}, Diminta: ${item.quantity})`)
         }
-        await tx.linenItem.update({
-          where: { id: item.linenItemId },
-          data: {
-            laundryStock: { decrement: item.quantity },
-            transitStock: { increment: item.quantity }
-          }
-        })
       } else if (type === 'CLEAN_TO_HOTEL') {
         if (currentItem.cleanStock < item.quantity) {
           throw new Error(`Stok bersih di gudang untuk ${currentItem.name} tidak mencukupi (Tersedia: ${currentItem.cleanStock}, Diminta: ${item.quantity})`)
         }
-        await tx.linenItem.update({
-          where: { id: item.linenItemId },
-          data: {
-            cleanStock: { decrement: item.quantity },
-            inRoomStock: { increment: item.quantity }
-          }
-        })
       } else if (type === 'CLEAN_TO_VILLA') {
         if (currentItem.cleanStock < item.quantity) {
           throw new Error(`Stok bersih di gudang untuk ${currentItem.name} tidak mencukupi (Tersedia: ${currentItem.cleanStock}, Diminta: ${item.quantity})`)
         }
-        await tx.linenItem.update({
-          where: { id: item.linenItemId },
-          data: {
-            cleanStock: { decrement: item.quantity },
-            inVillaStock: { increment: item.quantity }
-          }
-        })
       }
     }
+
+    // Mutate Stock in parallel
+    await Promise.all(
+      items.map(item => {
+        if (type === 'DIRTY_HOTEL_TO_LAUNDRY') {
+          return tx.linenItem.update({
+            where: { id: item.linenItemId },
+            data: {
+              inRoomStock: { decrement: item.quantity },
+              transitStock: { increment: item.quantity }
+            }
+          })
+        } else if (type === 'DIRTY_VILLA_TO_LAUNDRY') {
+          return tx.linenItem.update({
+            where: { id: item.linenItemId },
+            data: {
+              inVillaStock: { decrement: item.quantity },
+              transitStock: { increment: item.quantity }
+            }
+          })
+        } else if (type === 'LAUNDRY_TO_CLEAN') {
+          return tx.linenItem.update({
+            where: { id: item.linenItemId },
+            data: {
+              laundryStock: { decrement: item.quantity },
+              transitStock: { increment: item.quantity }
+            }
+          })
+        } else if (type === 'CLEAN_TO_HOTEL') {
+          return tx.linenItem.update({
+            where: { id: item.linenItemId },
+            data: {
+              cleanStock: { decrement: item.quantity },
+              inRoomStock: { increment: item.quantity }
+            }
+          })
+        } else if (type === 'CLEAN_TO_VILLA') {
+          return tx.linenItem.update({
+            where: { id: item.linenItemId },
+            data: {
+              cleanStock: { decrement: item.quantity },
+              inVillaStock: { increment: item.quantity }
+            }
+          })
+        }
+      })
+    )
 
     const trx = await tx.transaction.create({
       data: {
@@ -230,7 +247,11 @@ export async function submitTransaction(
 
     revalidatePath('/')
     revalidatePath('/transactions')
+    revalidatePath('/handover')
     return trx
+  }, {
+    maxWait: 15000,
+    timeout: 30000
   })
 }
 
@@ -499,11 +520,14 @@ export async function getPendingHandover(userId?: string) {
   if (!user) return []
 
   // Receivers mapping:
-  // HOUSEKEEPING receives: LAUNDRY_TO_CLEAN
+  // ADMIN can view all handovers
+  // HOUSEKEEPING receives: LAUNDRY_TO_CLEAN, CLEAN_TO_HOTEL, CLEAN_TO_VILLA
   // LAUNDRY receives: DIRTY_HOTEL_TO_LAUNDRY, DIRTY_VILLA_TO_LAUNDRY
-  const types = user.role === 'STAF_LAUNDRY' 
-    ? ['DIRTY_HOTEL_TO_LAUNDRY', 'DIRTY_VILLA_TO_LAUNDRY'] 
-    : ['LAUNDRY_TO_CLEAN', 'CLEAN_TO_HOTEL', 'CLEAN_TO_VILLA']
+  const types = user.role === 'ADMIN_EXECUTIVE_HOUSEKEEPER'
+    ? ['DIRTY_HOTEL_TO_LAUNDRY', 'DIRTY_VILLA_TO_LAUNDRY', 'LAUNDRY_TO_CLEAN', 'CLEAN_TO_HOTEL', 'CLEAN_TO_VILLA']
+    : user.role === 'STAF_LAUNDRY' 
+      ? ['DIRTY_HOTEL_TO_LAUNDRY', 'DIRTY_VILLA_TO_LAUNDRY'] 
+      : ['LAUNDRY_TO_CLEAN', 'CLEAN_TO_HOTEL', 'CLEAN_TO_VILLA']
 
   return await prisma.transaction.findMany({
     where: { status: 'PENDING', type: { in: types } },
@@ -546,74 +570,139 @@ export async function verifyTransaction(transactionId: string, userId: string, r
   if (!transactionId || typeof transactionId !== 'string') {
     throw new Error("ID transaksi tidak valid")
   }
-  if (!Array.isArray(receivedItems)) {
-    throw new Error("Daftar item tidak valid")
+  if (!Array.isArray(receivedItems) || receivedItems.length === 0) {
+    throw new Error("Daftar item tidak valid atau kosong")
   }
 
-  return await prisma.$transaction(async (tx) => {
-    const transaction = await tx.transaction.findUnique({
-      where: { id: transactionId },
-      include: { items: true }
-    })
-    
-    if (!transaction || transaction.status !== 'PENDING') throw new Error("Transaksi tidak valid atau sudah selesai")
-
-    // Validasi wewenang penerima berdasarkan peran
-    if (userRole === 'STAF_LAUNDRY' && !transaction.type.includes('TO_LAUNDRY')) {
-      throw new Error("Staf Laundry hanya dapat memverifikasi pengiriman ke Laundry")
-    }
-    if (userRole === 'STAF_HOUSEKEEPING' && transaction.type.includes('TO_LAUNDRY')) {
-      throw new Error("Staf Housekeeping tidak dapat memverifikasi pengiriman ke Laundry")
-    }
-
-    let hasDiscrepancy = false
-    
-    for (const submittedItem of transaction.items) {
-      const rec = receivedItems.find(r => r.itemId === submittedItem.id)
-      const rQty = rec !== undefined ? rec.receivedQty : submittedItem.quantity
-
-      if (!Number.isInteger(rQty) || rQty < 0) {
-        throw new Error("Kuantitas barang yang diterima harus berupa bilangan bulat non-negatif")
-      }
-      if (rQty > submittedItem.quantity) {
-        throw new Error(`Kuantitas diterima (${rQty}) tidak boleh melebihi kuantitas dikirim (${submittedItem.quantity})`)
-      }
-
-      if (rQty !== submittedItem.quantity) hasDiscrepancy = true
-      
-      await tx.transactionItem.update({
-        where: { id: submittedItem.id },
-        data: { receivedQty: rQty }
-      })
-    }
-
-    if (hasDiscrepancy) {
-      // Disputed
-      await tx.transaction.update({
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
         where: { id: transactionId },
-        data: { status: 'DISPUTED', acceptedById: verifiedUserId, disputeNotes: notes?.trim() || null }
-      })
-    } else {
-      // Accepted completely
-      await tx.transaction.update({
-        where: { id: transactionId },
-        data: { status: 'ACCEPTED', acceptedById: verifiedUserId }
+        include: { items: true }
       })
       
-      // Move from transit to destination
-      for (const item of transaction.items) {
-        if (transaction.type.includes('TO_LAUNDRY')) {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: item.quantity }, laundryStock: { increment: item.quantity } } })
-        } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: item.quantity }, cleanStock: { increment: item.quantity } } })
-        } else if (transaction.type === 'CLEAN_TO_HOTEL') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: item.quantity }, inRoomStock: { increment: item.quantity } } })
-        } else if (transaction.type === 'CLEAN_TO_VILLA') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: item.quantity }, inVillaStock: { increment: item.quantity } } })
+      if (!transaction || transaction.status !== 'PENDING') {
+        throw new Error("Transaksi tidak valid atau sudah selesai diproses")
+      }
+
+      // Validasi wewenang penerima berdasarkan peran
+      if (userRole === 'STAF_LAUNDRY' && !transaction.type.includes('TO_LAUNDRY')) {
+        throw new Error("Staf Laundry hanya dapat memverifikasi pengiriman ke Laundry")
+      }
+      if (userRole === 'STAF_HOUSEKEEPING' && transaction.type.includes('TO_LAUNDRY')) {
+        throw new Error("Staf Housekeeping tidak dapat memverifikasi pengiriman ke Laundry")
+      }
+
+      let hasDiscrepancy = false
+      const itemUpdates: { id: string; receivedQty: number }[] = []
+
+      for (const submittedItem of transaction.items) {
+        const rec = receivedItems.find(r => r.itemId === submittedItem.id)
+        const rawQty = rec !== undefined ? rec.receivedQty : submittedItem.quantity
+        const rQty = Number(rawQty)
+
+        if (!Number.isInteger(rQty) || rQty < 0) {
+          throw new Error("Kuantitas barang yang diterima harus berupa bilangan bulat non-negatif")
         }
+        if (rQty > submittedItem.quantity) {
+          throw new Error(`Kuantitas diterima (${rQty}) tidak boleh melebihi kuantitas dikirim (${submittedItem.quantity})`)
+        }
+
+        if (rQty !== submittedItem.quantity) {
+          hasDiscrepancy = true
+        }
+
+        itemUpdates.push({
+          id: submittedItem.id,
+          receivedQty: rQty
+        })
       }
-    }
-  })
+
+      // Update seluruh item transaksi secara bersamaan
+      await Promise.all(
+        itemUpdates.map(u => 
+          tx.transactionItem.update({
+            where: { id: u.id },
+            data: { receivedQty: u.receivedQty }
+          })
+        )
+      )
+
+      if (hasDiscrepancy) {
+        // Disputed
+        await tx.transaction.update({
+          where: { id: transactionId },
+          data: { 
+            status: 'DISPUTED', 
+            acceptedById: verifiedUserId, 
+            disputeNotes: notes?.trim() || null 
+          }
+        })
+      } else {
+        // Accepted completely
+        await tx.transaction.update({
+          where: { id: transactionId },
+          data: { 
+            status: 'ACCEPTED', 
+            acceptedById: verifiedUserId 
+          }
+        })
+        
+        // Move from transit to destination secara paralel
+        await Promise.all(
+          transaction.items.map(item => {
+            if (transaction.type.includes('TO_LAUNDRY')) {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { 
+                  transitStock: { decrement: item.quantity }, 
+                  laundryStock: { increment: item.quantity } 
+                } 
+              })
+            } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { 
+                  transitStock: { decrement: item.quantity }, 
+                  cleanStock: { increment: item.quantity } 
+                } 
+              })
+            } else if (transaction.type === 'CLEAN_TO_HOTEL') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { 
+                  transitStock: { decrement: item.quantity }, 
+                  inRoomStock: { increment: item.quantity } 
+                } 
+              })
+            } else if (transaction.type === 'CLEAN_TO_VILLA') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { 
+                  transitStock: { decrement: item.quantity }, 
+                  inVillaStock: { increment: item.quantity } 
+                } 
+              })
+            }
+          })
+        )
+      }
+
+      return { hasDiscrepancy }
+    }, {
+      maxWait: 15000,
+      timeout: 30000
+    })
+
+    revalidatePath('/handover')
+    revalidatePath('/transactions')
+    revalidatePath('/')
+    
+    return { success: true, hasDiscrepancy: result.hasDiscrepancy }
+  } catch (error: any) {
+    console.error("verifyTransaction error:", error)
+    return { success: false, error: error.message || "Gagal memproses serah terima" }
+  }
 }
 
 export async function confirmDispute(transactionId: string, action: 'APPROVE' | 'REJECT') {
@@ -629,54 +718,101 @@ export async function confirmDispute(transactionId: string, action: 'APPROVE' | 
     throw new Error("ID transaksi tidak valid")
   }
 
-  return await prisma.$transaction(async (tx) => {
-    const transaction = await tx.transaction.findUnique({
-      where: { id: transactionId },
-      include: { items: true }
+  try {
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: { items: true }
+      })
+      
+      if (!transaction || transaction.status !== 'DISPUTED') {
+        throw new Error("Transaksi tidak valid atau bukan status DISPUTED")
+      }
+
+      // Hanya pembuat transaksi atau Admin yang berhak menyetujui/menolak selisih
+      if (transaction.createdById !== verifiedUserId && userRole !== 'ADMIN_EXECUTIVE_HOUSEKEEPER') {
+        throw new Error("Unauthorized: Hanya pembuat transaksi atau Admin yang dapat menyelesaikan selisih")
+      }
+
+      if (action === 'REJECT') {
+        // Return everything from transit back to source secara paralel
+        await Promise.all(
+          transaction.items.map(item => {
+            const qty = item.quantity
+            if (transaction.type === 'DIRTY_HOTEL_TO_LAUNDRY') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: qty }, inRoomStock: { increment: qty } } 
+              })
+            } else if (transaction.type === 'DIRTY_VILLA_TO_LAUNDRY') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: qty }, inVillaStock: { increment: qty } } 
+              })
+            } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: qty }, laundryStock: { increment: qty } } 
+              })
+            } else if (transaction.type === 'CLEAN_TO_HOTEL' || transaction.type === 'CLEAN_TO_VILLA') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: qty }, cleanStock: { increment: qty } } 
+              })
+            }
+          })
+        )
+        await tx.transaction.update({ where: { id: transactionId }, data: { status: 'REJECTED' } })
+      } else {
+        // Approve the revised amounts secara paralel
+        await Promise.all(
+          transaction.items.map(item => {
+            const originalQty = item.quantity
+            const rQty = item.receivedQty ?? originalQty
+            const missingQty = originalQty - rQty
+
+            if (transaction.type === 'DIRTY_HOTEL_TO_LAUNDRY') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: originalQty }, laundryStock: { increment: rQty }, inRoomStock: { increment: missingQty } } 
+              })
+            } else if (transaction.type === 'DIRTY_VILLA_TO_LAUNDRY') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: originalQty }, laundryStock: { increment: rQty }, inVillaStock: { increment: missingQty } } 
+              })
+            } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: originalQty }, cleanStock: { increment: rQty }, laundryStock: { increment: missingQty } } 
+              })
+            } else if (transaction.type === 'CLEAN_TO_HOTEL') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: originalQty }, inRoomStock: { increment: rQty }, cleanStock: { increment: missingQty } } 
+              })
+            } else if (transaction.type === 'CLEAN_TO_VILLA') {
+              return tx.linenItem.update({ 
+                where: { id: item.linenItemId }, 
+                data: { transitStock: { decrement: originalQty }, inVillaStock: { increment: rQty }, cleanStock: { increment: missingQty } } 
+              })
+            }
+          })
+        )
+        await tx.transaction.update({ where: { id: transactionId }, data: { status: 'ACCEPTED' } })
+      }
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     })
-    
-    if (!transaction || transaction.status !== 'DISPUTED') throw new Error("Transaksi tidak valid atau bukan status DISPUTED")
 
-    // Hanya pembuat transaksi atau Admin yang berhak menyetujui/menolak selisih
-    if (transaction.createdById !== verifiedUserId && userRole !== 'ADMIN_EXECUTIVE_HOUSEKEEPER') {
-      throw new Error("Unauthorized: Hanya pembuat transaksi atau Admin yang dapat menyelesaikan selisih")
-    }
+    revalidatePath('/handover')
+    revalidatePath('/transactions')
+    revalidatePath('/')
 
-    if (action === 'REJECT') {
-      // Return everything from transit back to source
-      for (const item of transaction.items) {
-        const qty = item.quantity
-        if (transaction.type === 'DIRTY_HOTEL_TO_LAUNDRY') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: qty }, inRoomStock: { increment: qty } } })
-        } else if (transaction.type === 'DIRTY_VILLA_TO_LAUNDRY') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: qty }, inVillaStock: { increment: qty } } })
-        } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: qty }, laundryStock: { increment: qty } } })
-        } else if (transaction.type === 'CLEAN_TO_HOTEL' || transaction.type === 'CLEAN_TO_VILLA') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: qty }, cleanStock: { increment: qty } } })
-        }
-      }
-      await tx.transaction.update({ where: { id: transactionId }, data: { status: 'REJECTED' } })
-    } else {
-      // Approve the revised amounts
-      for (const item of transaction.items) {
-        const originalQty = item.quantity
-        const rQty = item.receivedQty ?? originalQty
-        const missingQty = originalQty - rQty
-
-        if (transaction.type === 'DIRTY_HOTEL_TO_LAUNDRY') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: originalQty }, laundryStock: { increment: rQty }, inRoomStock: { increment: missingQty } } })
-        } else if (transaction.type === 'DIRTY_VILLA_TO_LAUNDRY') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: originalQty }, laundryStock: { increment: rQty }, inVillaStock: { increment: missingQty } } })
-        } else if (transaction.type === 'LAUNDRY_TO_CLEAN') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: originalQty }, cleanStock: { increment: rQty }, laundryStock: { increment: missingQty } } })
-        } else if (transaction.type === 'CLEAN_TO_HOTEL') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: originalQty }, inRoomStock: { increment: rQty }, cleanStock: { increment: missingQty } } })
-        } else if (transaction.type === 'CLEAN_TO_VILLA') {
-          await tx.linenItem.update({ where: { id: item.linenItemId }, data: { transitStock: { decrement: originalQty }, inVillaStock: { increment: rQty }, cleanStock: { increment: missingQty } } })
-        }
-      }
-      await tx.transaction.update({ where: { id: transactionId }, data: { status: 'ACCEPTED' } })
-    }
-  })
+    return { success: true }
+  } catch (error: any) {
+    console.error("confirmDispute error:", error)
+    return { success: false, error: error.message || "Gagal memproses konfirmasi selisih" }
+  }
 }
