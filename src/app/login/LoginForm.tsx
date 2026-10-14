@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
 
 export default function LoginForm() {
   const router = useRouter()
@@ -78,15 +77,8 @@ export default function LoginForm() {
         </div>
       </div>
 
-      <Button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
-        {loading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Memverifikasi...
-          </>
-        ) : (
-          "Masuk"
-        )}
+      <Button type="submit" loading={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+        Masuk
       </Button>
     </form>
   )

@@ -16,6 +16,7 @@ import {
 import { useSession, signOut } from "next-auth/react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "./ui/button";
+import { getPendingHandoverCount } from "@/app/actions";
 
 const navItems = [
   {
@@ -78,11 +79,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [handoverCount, setHandoverCount] = React.useState<number>(0);
 
   const role = session?.user?.role || "";
   const userName = session?.user?.name || "";
 
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));
+
+  // Polling pending handovers count for notification badge
+  React.useEffect(() => {
+    let isMounted = true;
+    const fetchCount = async () => {
+      try {
+        const count = await getPendingHandoverCount();
+        if (isMounted) {
+          setHandoverCount(count);
+        }
+      } catch {
+        // silent fail
+      }
+    };
+
+    fetchCount();
+    const interval = setInterval(fetchCount, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [pathname]);
 
   // Close mobile menu on route change
   React.useEffect(() => {
@@ -102,14 +126,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
+            const isHandover = item.href === "/handover";
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${isActive ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-100 font-medium" : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"}`}
               >
-                <Icon className="w-5 h-5" />
-                {item.name}
+                <Icon className="w-5 h-5 shrink-0" />
+                <span className="flex-1 truncate">{item.name}</span>
+                {isHandover && handoverCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold rounded-full bg-lime-400 text-slate-900 shadow-sm ml-auto">
+                    {handoverCount > 99 ? "99+" : handoverCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -199,14 +229,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {visibleNavItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = pathname === item.href;
+                  const isHandover = item.href === "/handover";
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
                       className={`flex items-center gap-3 px-3 py-3 rounded-md transition-colors ${isActive ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-100 font-medium" : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"}`}
                     >
-                      <Icon className="w-5 h-5" />
-                      {item.name}
+                      <Icon className="w-5 h-5 shrink-0" />
+                      <span className="flex-1 truncate">{item.name}</span>
+                      {isHandover && handoverCount > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold rounded-full bg-lime-400 text-slate-900 shadow-sm ml-auto">
+                          {handoverCount > 99 ? "99+" : handoverCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

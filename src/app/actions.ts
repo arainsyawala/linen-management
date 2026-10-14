@@ -561,6 +561,37 @@ export async function getPendingDispute(userId?: string) {
   })
 }
 
+export async function getPendingHandoverCount(): Promise<number> {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return 0
+
+  const verifiedUserId = session.user.id
+  const userRole = session.user.role
+
+  const types = userRole === 'ADMIN_EXECUTIVE_HOUSEKEEPER'
+    ? ['DIRTY_HOTEL_TO_LAUNDRY', 'DIRTY_VILLA_TO_LAUNDRY', 'LAUNDRY_TO_CLEAN', 'CLEAN_TO_HOTEL', 'CLEAN_TO_VILLA']
+    : userRole === 'STAF_LAUNDRY' 
+      ? ['DIRTY_HOTEL_TO_LAUNDRY', 'DIRTY_VILLA_TO_LAUNDRY'] 
+      : ['LAUNDRY_TO_CLEAN', 'CLEAN_TO_HOTEL', 'CLEAN_TO_VILLA']
+
+  const disputeWhere: any = { status: 'DISPUTED' }
+  if (userRole !== 'ADMIN_EXECUTIVE_HOUSEKEEPER') {
+    disputeWhere.createdById = verifiedUserId
+  }
+
+  const [handoverCount, disputeCount] = await Promise.all([
+    prisma.transaction.count({
+      where: { status: 'PENDING', type: { in: types } }
+    }),
+    prisma.transaction.count({
+      where: disputeWhere
+    })
+  ])
+
+  return handoverCount + disputeCount
+}
+
+
 export async function verifyTransaction(transactionId: string, userId: string, receivedItems: { itemId: string, receivedQty: number }[], notes?: string) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) throw new Error("Unauthorized")
