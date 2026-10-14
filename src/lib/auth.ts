@@ -57,29 +57,64 @@ export const authOptions: NextAuthOptions = {
       return session
     },
     async redirect({ url, baseUrl }) {
-      const resolvedBase = process.env.NEXTAUTH_URL 
-        || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : baseUrl)
+      // Tentukan base URL aplikasi secara cerdas:
+      // Di produksi Vercel, jangan biarkan localhost menimpa domain produksi asli.
+      let resolvedBase = baseUrl
+      if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+        resolvedBase = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      } else if (process.env.VERCEL_URL) {
+        resolvedBase = `https://${process.env.VERCEL_URL}`
+      } else if (process.env.NEXTAUTH_URL) {
+        const isLocal = process.env.NEXTAUTH_URL.includes("localhost") || process.env.NEXTAUTH_URL.includes("127.0.0.1")
+        if (!isLocal || process.env.NODE_ENV !== "production") {
+          resolvedBase = process.env.NEXTAUTH_URL
+        } else {
+          resolvedBase = "https://linen-management.vercel.app"
+        }
+      } else if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
+        resolvedBase = "https://linen-management.vercel.app"
+      }
 
-      // Jika URL relatif (seperti /login)
+      // Jika URL relatif (seperti /login atau /)
       if (url.startsWith("/")) {
         return `${resolvedBase}${url}`
       }
 
-      // Validasi origin secara ketat untuk mencegah open redirect
+      // Validasi origin secara aman untuk mencegah open redirect
       try {
         const parsedUrl = new URL(url)
-        const allowedOrigins = [new URL(baseUrl).origin]
+        const parsedBase = new URL(resolvedBase)
+
+        // 1. Izinkan jika origin sama dengan resolvedBase
+        if (parsedUrl.origin === parsedBase.origin) {
+          return url
+        }
+
+        // 2. Izinkan jika origin sama dengan baseUrl bawaan NextAuth
         try {
-          allowedOrigins.push(new URL(resolvedBase).origin)
+          if (parsedUrl.origin === new URL(baseUrl).origin) {
+            return url
+          }
         } catch {}
 
-        if (allowedOrigins.includes(parsedUrl.origin)) {
+        // 3. Izinkan domain vercel resmi aplikasi (linen-management.vercel.app atau deployment preview)
+        const isVercelDomain = 
+          parsedUrl.protocol === "https:" && 
+          (parsedUrl.hostname === "linen-management.vercel.app" || 
+           (parsedUrl.hostname.startsWith("linen-management") && parsedUrl.hostname.endsWith(".vercel.app")))
+
+        // 4. Izinkan host development lokal dan VS Code devtunnels
+        const isDevDomain = 
+          parsedUrl.hostname === "localhost" || 
+          parsedUrl.hostname === "127.0.0.1" || 
+          parsedUrl.hostname.endsWith(".devtunnels.ms")
+
+        if (isVercelDomain || isDevDomain) {
           return url
         }
       } catch {}
 
-      return resolvedBase
+      return `${resolvedBase}/login`
     }
   },
   session: {
