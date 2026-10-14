@@ -57,26 +57,29 @@ export const authOptions: NextAuthOptions = {
       return session
     },
     async redirect({ url, baseUrl }) {
-      // Izinkan redirect ke host vercel.app atau devtunnels.ms
-      if (url.includes('vercel.app') || url.includes('devtunnels.ms')) {
-        return url
-      }
+      const resolvedBase = process.env.NEXTAUTH_URL 
+        || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : baseUrl)
+
       // Jika URL relatif (seperti /login)
       if (url.startsWith("/")) {
-        const resolvedBase = process.env.NEXTAUTH_URL 
-          || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
-          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : baseUrl)
         return `${resolvedBase}${url}`
       }
-      // Bawaan NextAuth jika origin sama
+
+      // Validasi origin secara ketat untuk mencegah open redirect
       try {
-        if (new URL(url).origin === baseUrl) return url
+        const parsedUrl = new URL(url)
+        const allowedOrigins = [new URL(baseUrl).origin]
+        try {
+          allowedOrigins.push(new URL(resolvedBase).origin)
+        } catch {}
+
+        if (allowedOrigins.includes(parsedUrl.origin)) {
+          return url
+        }
       } catch {}
 
-      if (process.env.VERCEL_URL) {
-        return `https://${process.env.VERCEL_URL}`
-      }
-      return baseUrl
+      return resolvedBase
     }
   },
   session: {
@@ -86,5 +89,10 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-development-only-change-in-prod"
+  secret: (() => {
+    if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === "production") {
+      throw new Error("NEXTAUTH_SECRET wajib disetel pada environment produksi.")
+    }
+    return process.env.NEXTAUTH_SECRET || "fallback-secret-for-development-only-change-in-prod"
+  })()
 }

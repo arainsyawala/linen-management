@@ -1,3 +1,6 @@
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { redirect } from "next/navigation"
 import { getUsers } from "../actions"
 import UserClient from "./UserClient"
 
@@ -8,6 +11,12 @@ export const metadata = {
 }
 
 export default async function UsersPage() {
+  const session = await getServerSession(authOptions)
+
+  if (session?.user?.role !== "ADMIN_EXECUTIVE_HOUSEKEEPER") {
+    redirect("/")
+  }
+
   const users = await getUsers()
   
   return (
